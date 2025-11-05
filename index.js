@@ -16,7 +16,7 @@ app.get("/", (req, res) => {
   res.send("Concero Quiz API is running...");
 });
 
-app.get("/api/leaderboard", async (req, res) => {
+app.get("/leaderboard", async (req, res) => {
   try {
     await client.connect();
     const db = client.db("concero_quiz");
