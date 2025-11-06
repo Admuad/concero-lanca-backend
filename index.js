@@ -32,6 +32,7 @@ app.get("/", (req, res) => {
 // --- Submit Result (POST) ---
 app.post("/api/submitResult", async (req, res) => {
   try {
+    console.log("📥 Incoming data:", req.body); 
     const { username, IQ, correct, totalQuestions } = req.body;
 
     if (!username || !IQ) {
