@@ -10,22 +10,38 @@ app.use(express.json());
 app.use(cors());
 
 const uri = process.env.MONGODB_URI;
-const client = new MongoClient(uri);
+let client;
+let db;
+
+async function connectToMongo() {
+  if (!client) {
+    client = new MongoClient(uri);
+    await client.connect();
+    db = client.db("concero_quiz");
+    console.log("✅ Connected to MongoDB");
+  }
+  return db;
+}
 
 app.get("/", (req, res) => {
   res.send("Concero Quiz API is running...");
 });
 
-app.get("/leaderboard", async (req, res) => {
+app.get("/api/leaderboard", async (req, res) => {
   try {
-    await client.connect();
-    const db = client.db("concero_quiz");
+    const db = await connectToMongo();
     const leaderboard = db.collection("leaderboard");
 
     const results = await leaderboard
       .aggregate([
         { $sort: { IQ: -1 } },
-        { $group: { _id: "$username", highestIQ: { $max: "$IQ" }, doc: { $first: "$$ROOT" } } },
+        {
+          $group: {
+            _id: "$username",
+            highestIQ: { $max: "$IQ" },
+            doc: { $first: "$$ROOT" },
+          },
+        },
         { $replaceRoot: { newRoot: "$doc" } },
         { $sort: { IQ: -1 } },
       ])
@@ -35,8 +51,6 @@ app.get("/leaderboard", async (req, res) => {
   } catch (err) {
     console.error("Error fetching leaderboard:", err);
     res.status(500).json({ message: "Internal server error" });
-  } finally {
-    await client.close();
   }
 });
 
