@@ -13,6 +13,7 @@ const uri = process.env.MONGODB_URI;
 let client;
 let db;
 
+// Persistent MongoDB connection
 async function connectToMongo() {
   if (!client) {
     client = new MongoClient(uri);
@@ -23,28 +24,58 @@ async function connectToMongo() {
   return db;
 }
 
+// --- Root route ---
 app.get("/", (req, res) => {
-  res.send("Concero Quiz API is running...");
+  res.send("Concero × Lanca Quiz API is running...");
 });
 
+// --- Submit Result (POST) ---
+app.post("/api/submitResult", async (req, res) => {
+  try {
+    const { username, IQ, correct, totalQuestions } = req.body;
+
+    if (!username || !IQ) {
+      return res.status(400).json({ message: "Missing fields" });
+    }
+
+    const db = await connectToMongo();
+    const leaderboard = db.collection("leaderboard");
+
+    // Upsert logic — update only if the new IQ is higher
+    const existing = await leaderboard.findOne({ username });
+    if (!existing || IQ > existing.IQ) {
+      await leaderboard.updateOne(
+        { username },
+        {
+          $set: {
+            username,
+            IQ,
+            correct,
+            totalQuestions,
+            updatedAt: new Date(),
+          },
+        },
+        { upsert: true }
+      );
+    }
+
+    res.status(200).json({ message: "Result saved successfully" });
+  } catch (error) {
+    console.error("Error saving result:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// --- Leaderboard (GET) ---
 app.get("/api/leaderboard", async (req, res) => {
   try {
     const db = await connectToMongo();
     const leaderboard = db.collection("leaderboard");
 
     const results = await leaderboard
-      .aggregate([
-        { $sort: { IQ: -1 } },
-        {
-          $group: {
-            _id: "$username",
-            highestIQ: { $max: "$IQ" },
-            doc: { $first: "$$ROOT" },
-          },
-        },
-        { $replaceRoot: { newRoot: "$doc" } },
-        { $sort: { IQ: -1 } },
-      ])
+      .find({})
+      .sort({ IQ: -1 })
+      .limit(50)
       .toArray();
 
     res.json(results);
