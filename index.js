@@ -42,55 +42,6 @@ app.get("/", (req, res) => {
   res.send("Concero × Lanca Quiz API is running...");
 });
 
-// --- Submit Result (POST) ---
-app.post("/api/submitResult", async (req, res) => {
-  try {
-    console.log("📥 Incoming data:", req.body);
-    const { username, IQ, correct, totalQuestions } = req.body;
-
-    if (!username || IQ === undefined || IQ === null) {
-      return res.status(400).json({ message: "Missing fields" });
-    }
-
-    const db = await connectToMongo();
-    const leaderboard = db.collection("leaderboard");
-
-    // Upsert logic — update score ONLY if higher, but ALWAYS update timestamp for "Daily" activity
-    const existing = await leaderboard.findOne({ username });
-
-    if (!existing) {
-      // New user
-      await leaderboard.insertOne({
-        username,
-        IQ,
-        correct,
-        totalQuestions,
-        updatedAt: new Date(),
-      });
-    } else {
-      // Existing user
-      const updateDoc = {
-        $set: {
-          updatedAt: new Date(), // Always marks them as active today
-        },
-      };
-
-      // Only update score stats if the new IQ is higher
-      if (IQ > existing.IQ) {
-        updateDoc.$set.IQ = IQ;
-        updateDoc.$set.correct = correct;
-        updateDoc.$set.totalQuestions = totalQuestions;
-      }
-
-      await leaderboard.updateOne({ username }, updateDoc);
-    }
-
-    res.status(200).json({ message: "Result saved successfully" });
-  } catch (error) {
-    console.error("Error saving result:", error);
-    res.status(500).json({ message: "Internal server error" });
-  }
-});
 
 // --- DB Migration Helper ---
 // DISABLED: Migration caused data pollution (all history set to now())
