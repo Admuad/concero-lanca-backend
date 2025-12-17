@@ -1,8 +1,5 @@
 // api/submitResult.js
-import { MongoClient } from "mongodb";
-
-const uri = process.env.MONGODB_URI;
-const client = new MongoClient(uri);
+import clientPromise from "./mongodb";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -15,7 +12,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ message: "Missing fields" });
     }
 
-    await client.connect();
+    const client = await clientPromise;
     const db = client.db("concero_quiz");
     const leaderboard = db.collection("leaderboard");
 
@@ -31,7 +28,5 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error("Error saving result:", error);
     res.status(500).json({ message: "Internal server error" });
-  } finally {
-    await client.close();
   }
 }
