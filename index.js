@@ -118,13 +118,19 @@ app.post("/api/submitResult", async (req, res) => {
         updatedAt: new Date(),
       });
     } else {
-      const updateDoc = { $set: { updatedAt: new Date() } };
       if (IQ > existing.IQ) {
-        updateDoc.$set.IQ = IQ;
-        updateDoc.$set.correct = correct;
-        updateDoc.$set.totalQuestions = totalQuestions;
+        // Only update if we have a new high score
+        const updateDoc = {
+          $set: {
+            IQ: IQ,
+            correct: correct,
+            totalQuestions: totalQuestions,
+            updatedAt: new Date()
+          }
+        };
+        await leaderboard.updateOne({ username }, updateDoc);
       }
-      await leaderboard.updateOne({ username }, updateDoc);
+      // If score is not higher, do nothing to preserve the original timestamp of the high score
     }
 
     res.status(200).json({ message: "Result saved successfully" });
@@ -153,9 +159,10 @@ app.get("/api/leaderboard", async (req, res) => {
     // ---------------------
 
     if (timeframe === "tournament") {
+      const tournamentId = getTournamentId();
       const results = await db.collection("tournament_results")
-        .find({})
-        .sort({ score: -1, timeSpent: 1 }) // Sort by Score DESC, then Time ASC
+        .find({ tournamentId }) // Filter by current tournament ID
+        .sort({ score: -1, submittedAt: 1 }) // Sort by Score DESC, then SubmittedAt ASC (First to submit)
         .limit(50)
         .toArray();
 
@@ -167,7 +174,7 @@ app.get("/api/leaderboard", async (req, res) => {
     if (timeframe === "all") {
       const results = await db.collection("leaderboard")
         .find({})
-        .sort({ IQ: -1 })
+        .sort({ IQ: -1, updatedAt: 1 }) // Sort by IQ DESC, then UpdatedAt ASC
         .limit(50)
         .toArray();
       return res.json(results);
@@ -185,14 +192,16 @@ app.get("/api/leaderboard", async (req, res) => {
       startDate.setUTCDate(startDate.getUTCDate() - 30);
     }
 
-    // Aggregation Pipeline: Match Date -> Group Max IQ -> Sort -> Limit
+    // Aggregation Pipeline: Match Date -> Sort (Candidate) -> Group Max IQ -> Sort (Final) -> Limit
     const pipeline = [
       { $match: { date: { $gte: startDate } } },
+      // Sort first to ensure $first in group picks the earliest top score
+      { $sort: { IQ: -1, date: 1 } },
       {
         $group: {
           _id: "$username",
-          IQ: { $max: "$IQ" },
-          doc: { $first: "$$ROOT" } // Keep other fields from the first doc found (not perfect but OK)
+          IQ: { $first: "$IQ" }, // First because we sorted by IQ desc
+          doc: { $first: "$$ROOT" } // First because we sorted by date asc (secondary)
         }
       },
       {
@@ -204,7 +213,7 @@ app.get("/api/leaderboard", async (req, res) => {
           createdAt: "$doc.date"
         }
       },
-      { $sort: { IQ: -1 } },
+      { $sort: { IQ: -1, createdAt: 1 } }, // Final sort
       { $limit: 50 }
     ];
 
@@ -216,6 +225,14 @@ app.get("/api/leaderboard", async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
+
+// --- Helper: Get Tournament ID ---
+function getTournamentId() {
+  // Use start time as unique ID for the tournament session
+  const startTimeStr = process.env.TOURNAMENT_START_UTC;
+  if (!startTimeStr) return "default_tournament";
+  return `tournament_${startTimeStr}`;
+}
 
 // --- Tournament Endpoints ---
 
@@ -253,7 +270,13 @@ app.post("/api/tournament-check", async (req, res) => {
     if (!username) return res.status(400).json({ message: "Username required" });
 
     const db = await connectToMongo();
-    const existing = await db.collection("tournament_results").findOne({ username });
+    const tournamentId = getTournamentId();
+
+    // Check for participation IN THIS SPECIFIC TOURNAMENT ID
+    const existing = await db.collection("tournament_results").findOne({
+      username,
+      tournamentId
+    });
 
     res.json({ hasPlayed: !!existing });
   } catch (error) {
@@ -271,15 +294,17 @@ app.post("/api/submitTournamentResult", async (req, res) => {
 
     const db = await connectToMongo();
     const collection = db.collection("tournament_results");
+    const tournamentId = getTournamentId();
 
-    // Check if already played
-    const existing = await collection.findOne({ username });
+    // Check if already played THIS TOURNAMENT
+    const existing = await collection.findOne({ username, tournamentId });
     if (existing) {
       return res.status(403).json({ message: "You have already participated in this tournament." });
     }
 
     await collection.insertOne({
       username,
+      tournamentId, // Save the ID to bucket results
       score, // Calculated score (IQ or points)
       correct,
       totalQuestions,
