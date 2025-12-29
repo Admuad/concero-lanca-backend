@@ -167,7 +167,13 @@ app.get("/api/leaderboard", async (req, res) => {
         .toArray();
 
       // Map to match frontend structure
-      const mapped = results.map(r => ({ ...r, IQ: r.score, isTournament: true, createdAt: r.submittedAt }));
+      const mapped = results.map(r => ({
+        ...r,
+        IQ: r.score,
+        isTournament: true,
+        createdAt: r.submittedAt,
+        discordHandle: r.discordHandle // Return discord handle
+      }));
       return res.json(mapped);
     }
 
@@ -288,7 +294,7 @@ app.post("/api/tournament-check", async (req, res) => {
 // Submit Tournament Result
 app.post("/api/submitTournamentResult", async (req, res) => {
   try {
-    const { username, score, timeSpent, correct, totalQuestions } = req.body;
+    const { username, score, timeSpent, correct, totalQuestions, discordHandle } = req.body;
 
     if (!username) return res.status(400).json({ message: "Missing fields" });
 
@@ -304,6 +310,7 @@ app.post("/api/submitTournamentResult", async (req, res) => {
 
     await collection.insertOne({
       username,
+      discordHandle, // Save Discord Handle
       tournamentId, // Save the ID to bucket results
       score, // Calculated score (IQ or points)
       correct,
@@ -316,6 +323,40 @@ app.post("/api/submitTournamentResult", async (req, res) => {
   } catch (error) {
     console.error("Error submitting tournament result:", error);
     res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// --- Admin Export ---
+app.get("/api/admin/results", async (req, res) => {
+  try {
+    const { key } = req.query;
+    // Simple hardcoded key for now - ideally this should be a secure environment variable
+    if (key !== "concero_admin") {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const db = await connectToMongo();
+    const tournamentId = getTournamentId();
+
+    const results = await db.collection("tournament_results")
+      .find({ tournamentId })
+      .sort({ score: -1, submittedAt: 1 })
+      .toArray();
+
+    // Simplify output for Admins
+    const csvFriendly = results.map((r, i) => ({
+      rank: i + 1,
+      username: r.username,
+      discordHandle: r.discordHandle || "N/A",
+      score: r.score,
+      time: r.timeSpent ? (r.timeSpent / 1000).toFixed(2) + "s" : "N/A",
+      submittedAt: r.submittedAt
+    }));
+
+    res.json(csvFriendly);
+  } catch (error) {
+    console.error("Export error:", error);
+    res.status(500).json({ message: "Export failed" });
   }
 });
 
