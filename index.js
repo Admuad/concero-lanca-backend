@@ -149,14 +149,7 @@ app.get("/api/leaderboard", async (req, res) => {
 
     const timeframe = req.query.timeframe || "all";
 
-    // --- DEBUG LOGGING ---
-    console.log(`DEBUG: Fetching leaderboard for timeframe: ${timeframe}`);
-    console.log(`DEBUG: Connected to DB: ${db.databaseName}`);
-    const countLB = await db.collection("leaderboard").countDocuments();
-    console.log(`DEBUG: 'leaderboard' count: ${countLB}`);
-    const countRes = await db.collection("results").countDocuments();
-    console.log(`DEBUG: 'results' count: ${countRes}`);
-    // ---------------------
+
 
     if (timeframe === "tournament") {
       const tournamentId = getTournamentId();
